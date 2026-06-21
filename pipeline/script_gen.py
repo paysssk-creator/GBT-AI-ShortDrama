@@ -11,25 +11,42 @@ from config.settings import SCRIPTS_DIR, MAX_SCENES
 
 
 class DeepSeekBrowser:
-    """免费DeepSeek网页版 — Playwright浏览器自动化"""
+    """免费DeepSeek网页版 — Playwright + nanobrowser扩展"""
     
     CHAT_URL = "https://chat.deepseek.com"
+    NANO_EXT = r"C:\Users\ADMIN\nanobrowser\chrome-extension"
 
     def __init__(self):
         self.page = None
         self.browser = None
+        self._pw = None
         self._init_browser()
 
     def _init_browser(self):
         try:
             from playwright.sync_api import sync_playwright
             self._pw = sync_playwright().start()
-            self.browser = self._pw.chromium.launch(headless=False)
-            ctx = self.browser.new_context(locale="zh-CN")
+            # 加载nanobrowser扩展
+            args = [
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+            ]
+            self.browser = self._pw.chromium.launch(
+                headless=False, args=args,
+                slow_mo=100  # 模拟人类操作速度
+            )
+            ctx = self.browser.new_context(
+                locale="zh-CN",
+                viewport={"width": 1280, "height": 900}
+            )
             self.page = ctx.new_page()
-            self.page.goto(self.CHAT_URL, timeout=30000)
-            time.sleep(4)
-            print("[OK] DeepSeek Browser ready (free)")
+            # 去掉webdriver标记
+            self.page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            """)
+            self.page.goto(self.CHAT_URL, timeout=30000, wait_until="networkidle")
+            time.sleep(5)
+            print("[OK] DeepSeek Browser + nanobrowser ready")
         except Exception as e:
             print(f"Browser init failed: {e}")
             self.browser = None
@@ -38,22 +55,73 @@ class DeepSeekBrowser:
         if not self.page:
             return ""
         try:
-            editor = self.page.locator("#chat-input, textarea, [contenteditable]").first
+            # DeepSeek新版输入框
+            selectors = [
+                "textarea[placeholder*='发消息']",
+                "textarea[placeholder*='message']",
+                "#chat-input",
+                "textarea",
+                "[contenteditable='true']",
+            ]
+            editor = None
+            for sel in selectors:
+                try:
+                    el = self.page.locator(sel).first
+                    if el.is_visible(timeout=2000):
+                        editor = el
+                        break
+                except:
+                    continue
+            if not editor:
+                return ""
+            
             editor.click()
-            editor.fill(prompt)
             time.sleep(0.5)
-            self.page.locator("button[type=submit], .send-btn, #send-button").first.click()
-            self.page.wait_for_selector(".ds-markdown, .markdown, .message-content", timeout=120000)
-            time.sleep(3)
-            replies = self.page.locator(".ds-markdown, .markdown, .message-content").all()
-            return replies[-1].inner_text() if replies else ""
+            editor.fill(prompt)
+            time.sleep(1)
+            
+            # 点发送
+            send_btns = [
+                "button[type='submit']",
+                "[data-testid='send-button']",
+                "button:has(svg)",
+                ".ds-icon-button",
+            ]
+            for sb in send_btns:
+                try:
+                    btn = self.page.locator(sb).last
+                    if btn.is_visible(timeout=1000):
+                        btn.click()
+                        break
+                except:
+                    continue
+            
+            # 等AI回复(最长120秒)
+            reply_selectors = ".ds-markdown, .ds-markdown--break, [class*='markdown']"
+            try:
+                self.page.wait_for_function(
+                    f"document.querySelectorAll('{reply_selectors}').length > 0",
+                    timeout=120000
+                )
+            except:
+                pass
+            time.sleep(5)
+            
+            # 取最后一条
+            replies = self.page.locator(reply_selectors).all()
+            if replies:
+                return replies[-1].inner_text()
+            return ""
         except Exception as e:
             print(f"Chat err: {e}")
             return ""
 
     def close(self):
         if self.browser:
-            self.browser.close()
+            try:
+                self.browser.close()
+            except:
+                pass
 
 
 class ScriptGenerator:
