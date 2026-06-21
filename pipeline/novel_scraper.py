@@ -81,27 +81,6 @@ class NovelScraper:
                 if href and not href.startswith("http"):
                     href = self.cfg["base_url"] + href
 
-    def fetch_chapter_list(self, novel_url: str) -> List[Dict]:
-        """获取小说全部章节列表"""
-        chapters = []
-        try:
-            resp = requests.get(novel_url, headers=HEADERS, timeout=15)
-            resp.encoding = self.cfg["encoding"]
-            soup = BeautifulSoup(resp.text, "lxml")
-            links = soup.select("#list dd a, .chapterlist dd a, ul.dirlist li a, dd a")
-            for i, a in enumerate(links):
-                href = a.get("href", "")
-                if href and not href.startswith("http"):
-                    href = self.cfg["base_url"] + href
-                chapters.append({
-                    "index": i + 1,
-                    "title": a.get_text(strip=True),
-                    "url": href,
-                })
-            print(f"Found {len(chapters)} chapters in total")
-        except Exception as e:
-            print(f"Fetch chapter list failed: {e}")
-        return chapters
                 author_el = item.select_one(".author, .s4, span")
                 author = author_el.get_text(strip=True) if author_el else "未知"
 
