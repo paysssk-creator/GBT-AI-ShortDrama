@@ -193,7 +193,6 @@ JSON:"""
             return "{}"
 
     def _fallback_script(self, prompt: str) -> dict:
-    def _fallback_script(self, prompt: str) -> dict:
         """兜底剧本模板"""
         return {
             "title": "短剧创作",
