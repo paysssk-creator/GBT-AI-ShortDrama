@@ -6,11 +6,11 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[('C:\\Users\\ADMIN\\GBT-AI-ShortDrama\\config\\characters.json', 'config')],
-    hiddenimports=['gradio', 'edge_tts', 'pipeline'],
+    hiddenimports=['gradio', 'edge_tts', 'pipeline.novel_scraper', 'pipeline.novel_pipeline', 'pipeline.novel_to_drama', 'pipeline.script_gen', 'pipeline.tts_gen', 'pipeline.compose', 'pipeline.orchestrator', 'bs4', 'lxml'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['torch', 'matplotlib'],
+    excludes=['torch', 'torchvision', 'matplotlib', 'scipy'],
     noarchive=False,
     optimize=0,
 )
