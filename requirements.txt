@@ -1,0 +1,28 @@
+# GBT AI Short Drama Factory — 依赖
+# 核心框架 (已在 GBTXIAOTUDOUAI 中)
+# - gbt-agent-framework >= 1.5.0
+
+# 视频生成引擎 (三选一)
+# diffusers >= 0.31.0  # CogVideoX 低门槛方案
+# torch >= 2.5.1
+# transformers >= 4.46.0
+
+# 语音合成 (二选一)
+edge-tts >= 6.1.0     # 免费微软TTS（推荐）
+# ChatTTS >= 0.1.0     # 高质量本地TTS(需要GPU)
+
+# 视频合成
+ffmpeg-python >= 0.2.0
+imageio >= 2.36.0
+imageio-ffmpeg >= 0.5.1
+
+# 字幕
+pysrt >= 1.1.2
+
+# 通用工具
+numpy >= 1.26.0
+Pillow >= 10.0.0
+requests >= 2.31.0
+
+# 可选: OpenAI 兼容 (当 GBTLLM 不可用时)
+# openai >= 1.0.0

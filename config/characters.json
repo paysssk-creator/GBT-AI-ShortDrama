@@ -1,0 +1,57 @@
+{
+    "characters": [
+        {
+            "id": "hero",
+            "name": "主角",
+            "gender": "male",
+            "age": 28,
+            "voice": "zh-CN-YunxiNeural",
+            "personality": "勇敢正义，有责任感",
+            "appearance": "黑色短发，剑眉星目，身材挺拔",
+            "wardrobe": "古装白袍，腰间佩剑",
+            "archetype": "侠客"
+        },
+        {
+            "id": "heroine",
+            "name": "女主",
+            "gender": "female",
+            "age": 24,
+            "voice": "zh-CN-XiaoxiaoNeural",
+            "personality": "聪慧灵动，心地善良",
+            "appearance": "长发及腰，明眸善睐",
+            "wardrobe": "粉色罗裙，佩戴玉簪",
+            "archetype": "大家闺秀"
+        },
+        {
+            "id": "villain",
+            "name": "反派",
+            "gender": "male",
+            "age": 40,
+            "voice": "zh-CN-YunyangNeural",
+            "personality": "阴险狡诈，野心勃勃",
+            "appearance": "鹰钩鼻，眼神犀利",
+            "wardrobe": "黑袍金纹，气势凌人",
+            "archetype": "魔教教主"
+        },
+        {
+            "id": "mentor",
+            "name": "师父",
+            "gender": "male",
+            "age": 60,
+            "voice": "zh-CN-YunyeNeural",
+            "personality": "慈祥睿智，深藏不露",
+            "appearance": "白发苍苍，仙风道骨",
+            "wardrobe": "青色道袍，手持拂尘",
+            "archetype": "世外高人"
+        },
+        {
+            "id": "narrator",
+            "name": "旁白",
+            "gender": "neutral",
+            "age": 35,
+            "voice": "zh-CN-YunxiNeural",
+            "personality": "沉稳大气，娓娓道来",
+            "archetype": "讲故事的人"
+        }
+    ]
+}
