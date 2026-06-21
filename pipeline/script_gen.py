@@ -113,7 +113,28 @@ class ScriptGenerator:
             
             # 清洗JSON
             text = self._clean_json(text)
-            script = json.loads(text)
+            try:
+                script = json.loads(text)
+            except json.JSONDecodeError:
+                # Retry with simpler prompt for small models
+                print("  Retry: JSON parse failed, trying simpler prompt...")
+                text = self._retry_simple(prompt, characters)
+                text = self._clean_json(text)
+                try:
+                    script = json.loads(text)
+                except json.JSONDecodeError:
+                    print("  Retry2: still failed, using fallback")
+                    return self._fallback_script(prompt)
+            
+            # 质量检查: 如果只有1个场景且标题是"短剧创作", 说明模型没理解
+            if script.get("title") == "短剧创作" and len(script.get("scenes", [])) <= 1:
+                print("  Quality check failed, retrying...")
+                text = self._retry_simple(prompt, characters)
+                text = self._clean_json(text)
+                try:
+                    script = json.loads(text)
+                except json.JSONDecodeError:
+                    pass
             
             # 保存剧本
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -142,6 +163,36 @@ class ScriptGenerator:
             text = text[:-3]
         return text.strip()
 
+    def _retry_simple(self, prompt: str, characters: list = None) -> str:
+        """小模型专用简化提示 - 分步引导输出JSON"""
+        simple = f"""写一个短剧剧本，主题：{prompt[:100]}
+
+直接输出JSON，不要别的文字：
+{{"title":"剧名","genre":"类型","summary":"简介","scenes":[
+{{"scene_id":1,"location":"地点","time":"时间","mood":"氛围","visual_prompt":"英文画面描述","action":"动作","dialogues":[{{"character":"角色","text":"台词"}}],"narration":"旁白","duration_sec":4}}
+]}}
+
+要求：
+- 写3到5个场景
+- visual_prompt写英文，比如 "FPS-24, wide shot of..."
+- 角色名用中文
+- 只输出JSON
+
+JSON:"""
+        try:
+            if hasattr(self, '_use_openai'):
+                resp = self.llm.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": simple}],
+                    temperature=0.8
+                )
+                return resp.choices[0].message.content
+            else:
+                return self.llm.chat([{"role": "user", "content": simple}])
+        except:
+            return "{}"
+
+    def _fallback_script(self, prompt: str) -> dict:
     def _fallback_script(self, prompt: str) -> dict:
         """兜底剧本模板"""
         return {
