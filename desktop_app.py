@@ -135,47 +135,62 @@ def fetch_ranking_ui(source):
     except Exception as e:
         return f"Error: {e}", gr.update(choices=[])
 
-def novel_to_drama_ui(source, rank, enable_audio):
-    """UI: 玄幻小说→AI短剧 全自动"""
-    if not rank or not rank.strip():
-        return "Please fetch ranking first", None, None
+def one_click_drama_ui(source, max_books, enable_audio):
+    """一键到底: 排行榜→自动选书→逐章→配音→完结→下一本 全自动"""
     log = []
-    try:
-        rank_num = int(rank.split("#")[1].split()[0]) if "#" in rank else 1
-    except:
-        rank_num = 1
-
-    log.append(f"[{datetime.now().strftime('%H:%M:%S')}] Starting novel->drama pipeline")
+    log.append("━"*60)
+    log.append(f"  ONE-CLICK DRAMA FACTORY | {datetime.now().strftime('%H:%M:%S')}")
+    log.append(f"  Source: {source} | Max books: {max_books}")
+    log.append("━"*60)
     
-    try:
-        pipeline = NovelDramaPipeline()
-        result = pipeline.run_novel(rank=rank_num)
+    pipeline = NovelDramaPipeline()
+    books_done = 0
+    books_failed = 0
+    books_skipped = 0
+    
+    for rank in range(1, max_books + 1):
+        log.append(f"\n{'#'*50}")
+        log.append(f"  BOOK {rank}/{max_books}")
+        log.append(f"{'#'*50}")
         
-        if not result.get("ok"):
-            err = result.get("error", "Unknown error")
-            log_lines = result.get("log", [])
-            return "\n".join(log_lines), f"FAILED: {err}", None
-        
-        if result.get("skipped"):
-            return "\n".join(result.get("log", [])), "SKIPPED (already processed)", None
-        
-        log_lines = result.get("log", [])
-        scripts = result.get("scripts", [])
-        total = result.get("total_chapters", 0)
-        done = result.get("completed", 0)
-        
-        preview = json.dumps({
-            "total_chapters": total,
-            "completed": done,
-            "skipped": result.get("skipped", 0),
-            "failed": result.get("failed", 0),
-            "sample": scripts[0] if scripts else None,
-        }, ensure_ascii=False, indent=2)
-        
-        return "\n".join(log_lines), f"DONE: {done}/{total} chapters", preview
-    except Exception as e:
-        import traceback
-        return str(e), f"Error: {e}", None
+        try:
+            result = pipeline.run_novel(rank=rank)
+            
+            if result.get("skipped"):
+                books_skipped += 1
+                log.append(f">> SKIPPED (already processed)")
+                continue
+            
+            if not result.get("ok"):
+                books_failed += 1
+                log.append(f">> FAILED: {result.get('error','')}")
+                continue
+            
+            books_done += 1
+            c = result.get("completed", 0)
+            t = result.get("total_chapters", 0)
+            s = result.get("skipped", 0)
+            f = result.get("failed", 0)
+            log.append(f">> DONE: {c}/{t} chapters | skipped:{s} | failed:{f}")
+            
+        except Exception as e:
+            books_failed += 1
+            log.append(f">> CRASH: {e}")
+    
+    log.append(f"\n{'='*60}")
+    log.append(f"  FACTORY COMPLETE!")
+    log.append(f"  Books: {books_done} done | {books_skipped} skipped | {books_failed} failed")
+    log.append(f"  Output: {SCRIPTS_DIR}")
+    log.append(f"{'='*60}")
+    
+    summary = json.dumps({
+        "total_books": max_books,
+        "completed": books_done,
+        "skipped": books_skipped,
+        "failed": books_failed,
+    }, ensure_ascii=False, indent=2)
+    
+    return "\n".join(log), f"FACTORY DONE: {books_done}/{max_books} books", summary
 
 def view_output_files():
     files = []
@@ -202,7 +217,7 @@ with gr.Blocks(title="GBT AI短剧工厂") as demo:
     </div>""")
     
     with gr.Tabs():
-        with gr.TabItem("🚀 一键生成"):
+        with gr.TabItem("🚀 自由创作 (一键)"):
             with gr.Row():
                 with gr.Column(scale=2):
                     prompt_input = gr.Textbox(label="创作需求", placeholder="例: 古装武侠短剧，主角为师父复仇，5个场景", lines=3)
@@ -241,22 +256,19 @@ with gr.Blocks(title="GBT AI短剧工厂") as demo:
                     ta = gr.Audio(label="试听", type="filepath")
             tb.click(fn=generate_tts_ui, inputs=[tt, tv, ts], outputs=[tl, ta])
         
-        with gr.TabItem("📚 玄幻小说→短剧"):
-            gr.Markdown("### 玄幻排行榜 → 整本小说逐章→每章2集短剧→完结才换书")
+        with gr.TabItem("📚 玄幻小说→短剧 (一键到底)"):
+            gr.Markdown("### 🔥 点一下 → 自动抓排行→下载→逐章拆2集→配音→完结→下一本")
             with gr.Row():
                 with gr.Column(scale=1):
                     nsource = gr.Dropdown(choices=["biquge","69shu","biqukan"], value="biquge", label="小说源")
-                    fetch_btn = gr.Button("📊 获取排行榜", variant="primary")
-                    ntable = gr.Markdown("点击获取玄幻小说排行榜")
-                    nrank = gr.Dropdown(choices=[], label="选择小说", interactive=True)
+                    ncount = gr.Slider(1, 10, value=1, step=1, label="处理前N本")
                     naudio = gr.Checkbox(label="生成配音", value=True)
-                    ndrama_btn = gr.Button("🎬 整本→短剧(逐章2集)", variant="primary", size="lg")
-                with gr.Column(scale=2):
-                    nlog = gr.Textbox(label="流程日志", lines=12, elem_classes="log-box")
-                    ntitle = gr.Textbox(label="结果", visible=False)
-                    nscript = gr.Code(label="两集剧本 (Episode 1 + 2)", language="json", lines=16)
-            fetch_btn.click(fn=fetch_ranking_ui, inputs=[nsource], outputs=[ntable, nrank])
-            ndrama_btn.click(fn=novel_to_drama_ui, inputs=[nsource, nrank, naudio], outputs=[nlog, ntitle, nscript])
+                    oneclick_btn = gr.Button("⚡ 一键到底(全自动)", variant="primary", size="lg")
+                with gr.Column(scale=3):
+                    nlog = gr.Textbox(label="实时日志", lines=20, elem_classes="log-box")
+                    nresult = gr.Textbox(label="结果摘要")
+                    njson = gr.Code(label="统计", language="json")
+            oneclick_btn.click(fn=one_click_drama_ui, inputs=[nsource, ncount, naudio], outputs=[nlog, nresult, njson])
         
         with gr.TabItem("⚙️ 设置"):
             status = gr.Textbox(label="系统状态", value=f"""
