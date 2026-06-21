@@ -1,215 +1,159 @@
 """
 pipeline/script_gen.py — AI剧本生成器
-基于 GBTLLM 多模型能力生成短剧剧本
+LLM优先级: DeepSeek网页版(免费) > API > Ollama本地
 """
-import json
-import os
-import sys
+import json, os, sys, re, time
 from pathlib import Path
 from datetime import datetime
 
-# 添加 GBT 框架路径
 sys.path.insert(0, str(Path("C:/Users/ADMIN/GBTXIAOTUDOUAI")))
+from config.settings import SCRIPTS_DIR, MAX_SCENES
 
-from config.settings import LLM_PROVIDER, LLM_MODEL, SCRIPTS_DIR, MAX_SCENES
+
+class DeepSeekBrowser:
+    """免费DeepSeek网页版 — Playwright浏览器自动化"""
+    
+    CHAT_URL = "https://chat.deepseek.com"
+
+    def __init__(self):
+        self.page = None
+        self.browser = None
+        self._init_browser()
+
+    def _init_browser(self):
+        try:
+            from playwright.sync_api import sync_playwright
+            self._pw = sync_playwright().start()
+            self.browser = self._pw.chromium.launch(headless=False)
+            ctx = self.browser.new_context(locale="zh-CN")
+            self.page = ctx.new_page()
+            self.page.goto(self.CHAT_URL, timeout=30000)
+            time.sleep(4)
+            print("[OK] DeepSeek Browser ready (free)")
+        except Exception as e:
+            print(f"Browser init failed: {e}")
+            self.browser = None
+
+    def chat(self, prompt: str) -> str:
+        if not self.page:
+            return ""
+        try:
+            editor = self.page.locator("#chat-input, textarea, [contenteditable]").first
+            editor.click()
+            editor.fill(prompt)
+            time.sleep(0.5)
+            self.page.locator("button[type=submit], .send-btn, #send-button").first.click()
+            self.page.wait_for_selector(".ds-markdown, .markdown, .message-content", timeout=120000)
+            time.sleep(3)
+            replies = self.page.locator(".ds-markdown, .markdown, .message-content").all()
+            return replies[-1].inner_text() if replies else ""
+        except Exception as e:
+            print(f"Chat err: {e}")
+            return ""
+
+    def close(self):
+        if self.browser:
+            self.browser.close()
 
 
 class ScriptGenerator:
     """AI短剧剧本生成器"""
 
-    SYSTEM_PROMPT = """你是一位专业的短剧编剧。你需要根据用户的要求，创作一个完整的短剧剧本。
-
-你必须返回严格JSON格式，结构如下：
-{
-    "title": "短剧标题",
-    "genre": "类型(古装/现代/悬疑/甜宠/逆袭等)",
-    "summary": "一句话简介",
-    "scenes": [
-        {
-            "scene_id": 1,
-            "location": "场景地点描述",
-            "time": "时间(白天/夜晚/黄昏等)",
-            "mood": "氛围(紧张/温馨/悲伤等)",
-            "visual_prompt": "用于AI视频生成的英文画面描述(50词以内,注重构图和光线)",
-            "action": "动作描述(15字以内)",
-            "dialogues": [
-                {"character": "角色名", "text": "台词内容"}
-            ],
-            "narration": "旁白内容(可选)",
-            "duration_sec": 4
-        }
-    ]
-}
-
-规则：
-1. 场景数控制在5~10个
-2. visual_prompt用英文写，格式如："FPS-24, cinematic shot, close-up of a young man in white robe, ancient Chinese courtyard, soft morning light, shallow depth of field, 4K quality"
-3. 每个场景配备至少1句台词
-4. 剧情要有起承转合
-5. 角色名从人物列表中选择"""
+    SYS = """你是短剧编剧。返回严格JSON:
+{"title":"剧名","genre":"类型","summary":"简介","scenes":[
+{"scene_id":1,"location":"场景","time":"时间","mood":"氛围",
+"visual_prompt":"英文画面描述","action":"动作",
+"dialogues":[{"character":"角色","text":"台词"}],"narration":"旁白","duration_sec":4}]}
+规则:3~5场景,visual_prompt英文50词内,只输出JSON"""
 
     def __init__(self):
         self.llm = None
-        self._init_llm()
+        self.model = "none"
+        self._openai = False
+        self._browser = None
+        self._init()
 
-    def _init_llm(self):
-        """初始化 LLM"""
+    def _init(self):
+        # 1. DeepSeek网页(完全免费)
+        try:
+            self._browser = DeepSeekBrowser()
+            if self._browser.browser:
+                self.llm = self._browser
+                self.model = "deepseek-browser"
+                print("[OK] LLM: DeepSeek Web (free)")
+                return
+        except: pass
+        # 2. DeepSeek API
+        k = os.getenv("DEEPSEEK_API_KEY","")
+        if k.startswith("sk-") and len(k)>20:
+            try:
+                from openai import OpenAI
+                self.llm = OpenAI(api_key=k,base_url="https://api.deepseek.com/v1")
+                self.model="deepseek-chat"; self._openai=True
+                print("[OK] LLM: DeepSeek API"); return
+            except: pass
+        # 3. GLM
+        k = os.getenv("GLM_API_KEY","")
+        if k:
+            try:
+                from openai import OpenAI
+                self.llm=OpenAI(api_key=k,base_url="https://open.bigmodel.cn/api/paas/v4")
+                self.model="glm-4-flash"; self._openai=True
+                print("[OK] LLM: GLM"); return
+            except: pass
+        # 4. OpenAI
+        k = os.getenv("OPENAI_API_KEY","")
+        if k.startswith("sk-"):
+            try:
+                from openai import OpenAI
+                self.llm=OpenAI(api_key=k); self.model="gpt-4o-mini"
+                self._openai=True; print("[OK] LLM: OpenAI"); return
+            except: pass
+        # 5. Ollama
         try:
             from gbt.llm import GBTLLM
-            self.llm = GBTLLM(
-                provider=LLM_PROVIDER,
-                model=LLM_MODEL,
-                temperature=0.8,
-                max_tokens=8192
-            )
-            print(f"✅ 剧本生成器就绪: {self.llm.provider_name} / {self.llm.model}")
-        except Exception as e:
-            print(f"⚠️ GBTLLM 初始化失败: {e}")
-            print(f"💡 将使用 OpenAI 兼容接口")
-            from openai import OpenAI
-            self.llm = OpenAI(
-                api_key=os.getenv("OPENAI_API_KEY", "sk-dummy"),
-                base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-            )
-            self._use_openai = True
+            self.llm=GBTLLM(provider="ollama"); self.model=self.llm.model
+            print(f"[OK] LLM: Ollama/{self.model}"); return
+        except: pass
+        raise RuntimeError("No LLM")
 
     def generate(self, prompt: str, characters: list = None) -> dict:
-        """
-        生成短剧剧本
-        
-        Args:
-            prompt: 用户创作要求
-            characters: 可选的人物列表
-        
-        Returns:
-            dict: 完整剧本JSON
-        """
-        user_prompt = f"创作需求：{prompt}\n"
+        user = f"创作需求：{prompt}"
         if characters:
-            char_desc = "\n".join(
-                f"- {c['name']}({c.get('archetype','')}): {c.get('personality','')}, 外貌:{c.get('appearance','')}"
-                for c in characters
-            )
-            user_prompt += f"\n可用角色：\n{char_desc}"
-        
-        user_prompt += f"\n请生成{MAX_SCENES}个场景以内的短剧剧本。"
-
-        messages = [
-            {"role": "system", "content": self.SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt}
-        ]
-
+            user += "\n角色：" + ",".join(c["name"] for c in characters)
+        user += f"\n请生成{MAX_SCENES}个场景以内的短剧剧本。"
+        msg = [{"role":"system","content":self.SYS},{"role":"user","content":user}]
         try:
-            if hasattr(self, '_use_openai'):
+            if isinstance(self.llm, DeepSeekBrowser):
+                text = self._browser.chat(f"{self.SYS}\n\n{user}\n只输出JSON:")
+                if not text: return self._fallback(prompt)
+            elif self._openai:
                 resp = self.llm.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=messages,
-                    response_format={"type": "json_object"},
-                    temperature=0.8
-                )
+                    model=self.model, messages=msg,
+                    response_format={"type":"json_object"}, temperature=0.8)
                 text = resp.choices[0].message.content
             else:
-                text = self.llm.chat(messages)
-            
-            # 清洗JSON
-            text = self._clean_json(text)
-            try:
-                script = json.loads(text)
-            except json.JSONDecodeError:
-                # Retry with simpler prompt for small models
-                print("  Retry: JSON parse failed, trying simpler prompt...")
-                text = self._retry_simple(prompt, characters)
-                text = self._clean_json(text)
-                try:
-                    script = json.loads(text)
-                except json.JSONDecodeError:
-                    print("  Retry2: still failed, using fallback")
-                    return self._fallback_script(prompt)
-            
-            # 质量检查: 如果只有1个场景且标题是"短剧创作", 说明模型没理解
-            if script.get("title") == "短剧创作" and len(script.get("scenes", [])) <= 1:
-                print("  Quality check failed, retrying...")
-                text = self._retry_simple(prompt, characters)
-                text = self._clean_json(text)
-                try:
-                    script = json.loads(text)
-                except json.JSONDecodeError:
-                    pass
-            
-            # 保存剧本
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            script_path = SCRIPTS_DIR / f"script_{timestamp}.json"
-            with open(script_path, "w", encoding="utf-8") as f:
-                json.dump(script, f, ensure_ascii=False, indent=2)
-            
-            print(f"📜 剧本已生成: {script_path}")
-            print(f"   标题: {script.get('title','N/A')}")
-            print(f"   场景数: {len(script.get('scenes',[]))}")
-            
-            return script
-            
+                text = self.llm.invoke(messages=msg)
+            text = self._clean(text)
+            s = json.loads(text)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            (SCRIPTS_DIR / f"script_{ts}.json").write_text(
+                json.dumps(s,ensure_ascii=False,indent=2), encoding="utf-8")
+            print(f"📜 {s['title']} | {len(s.get('scenes',[]))} scenes")
+            return s
         except Exception as e:
-            print(f"❌ 剧本生成失败: {e}")
-            return self._fallback_script(prompt)
+            print(f"❌ {e}")
+            return self._fallback(prompt)
 
-    def _clean_json(self, text: str) -> str:
-        """清洗 LLM 返回的 JSON"""
-        text = text.strip()
-        if text.startswith("```json"):
-            text = text[7:]
-        if text.startswith("```"):
-            text = text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        return text.strip()
+    def _clean(self, t: str) -> str:
+        t = t.strip()
+        if t.startswith("```"): t = re.sub(r"^```\w*\n?","",t); t = re.sub(r"\n?```$","",t)
+        return t
 
-    def _retry_simple(self, prompt: str, characters: list = None) -> str:
-        """小模型专用简化提示 - 分步引导输出JSON"""
-        simple = f"""写一个短剧剧本，主题：{prompt[:100]}
+    def _fallback(self, p: str) -> dict:
+        return {"title":"短剧创作","genre":"未知","summary":p[:50],
+            "scenes":[{"scene_id":1,"location":"古风庭院","time":"白天",
+            "mood":"宁静","visual_prompt":"FPS-24,wide shot,ancient Chinese courtyard",
+            "action":"主角登场","dialogues":[{"character":"主角","text":"新的征程开始了。"}],
+            "duration_sec":4}]}
 
-直接输出JSON，不要别的文字：
-{{"title":"剧名","genre":"类型","summary":"简介","scenes":[
-{{"scene_id":1,"location":"地点","time":"时间","mood":"氛围","visual_prompt":"英文画面描述","action":"动作","dialogues":[{{"character":"角色","text":"台词"}}],"narration":"旁白","duration_sec":4}}
-]}}
-
-要求：
-- 写3到5个场景
-- visual_prompt写英文，比如 "FPS-24, wide shot of..."
-- 角色名用中文
-- 只输出JSON
-
-JSON:"""
-        try:
-            if hasattr(self, '_use_openai'):
-                resp = self.llm.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": simple}],
-                    temperature=0.8
-                )
-                return resp.choices[0].message.content
-            else:
-                return self.llm.chat([{"role": "user", "content": simple}])
-        except:
-            return "{}"
-
-    def _fallback_script(self, prompt: str) -> dict:
-        """兜底剧本模板"""
-        return {
-            "title": "短剧创作",
-            "genre": "未知",
-            "summary": prompt[:50],
-            "scenes": [
-                {
-                    "scene_id": 1,
-                    "location": "古风庭院",
-                    "time": "白天",
-                    "mood": "宁静",
-                    "visual_prompt": "FPS-24, wide shot of ancient Chinese courtyard, cherry blossoms falling, soft sunlight through leaves, cinematic quality",
-                    "action": "主角漫步于庭院",
-                    "dialogues": [
-                        {"character": "主角", "text": "这片天地，终究是我的归宿。"}
-                    ],
-                    "duration_sec": 4
-                }
-            ]
-        }
