@@ -15,6 +15,8 @@ from config.settings import *
 from pipeline.script_gen import ScriptGenerator
 from pipeline.tts_gen import TTSGenerator
 from pipeline.compose import VideoComposer
+from pipeline.novel_scraper import NovelScraper
+from pipeline.novel_pipeline import NovelDramaPipeline
 
 # 懒加载
 _script_gen = None
@@ -115,6 +117,66 @@ def run_full_pipeline_ui(prompt, genre, scene_count, enable_audio):
         log.append(f"\n❌ {e}\n{traceback.format_exc()}")
         return "\n".join(log), None
 
+# === 玄幻小说 → 短剧 ===
+
+def fetch_ranking_ui(source):
+    """UI: 获取玄幻排行榜"""
+    try:
+        scraper = NovelScraper(source)
+        novels = scraper.fetch_ranking(15)
+        if not novels:
+            return "No novels found", gr.update(choices=[])
+        table = "| # | Title | Author |\n|---|-------|--------|\n"
+        choices = []
+        for n in novels:
+            table += f"| {n['rank']} | {n['title'][:30]} | {n['author']} |\n"
+            choices.append(f"#{n['rank']} {n['title'][:40]} - {n['author']}")
+        return table, gr.update(choices=choices, value=choices[0] if choices else None)
+    except Exception as e:
+        return f"Error: {e}", gr.update(choices=[])
+
+def novel_to_drama_ui(source, rank, enable_audio):
+    """UI: 玄幻小说→AI短剧 全自动"""
+    if not rank or not rank.strip():
+        return "Please fetch ranking first", None, None
+    log = []
+    try:
+        rank_num = int(rank.split("#")[1].split()[0]) if "#" in rank else 1
+    except:
+        rank_num = 1
+
+    log.append(f"[{datetime.now().strftime('%H:%M:%S')}] Starting novel->drama pipeline")
+    
+    try:
+        pipeline = NovelDramaPipeline()
+        result = pipeline.run_novel(rank=rank_num)
+        
+        if not result.get("ok"):
+            err = result.get("error", "Unknown error")
+            log_lines = result.get("log", [])
+            return "\n".join(log_lines), f"FAILED: {err}", None
+        
+        if result.get("skipped"):
+            return "\n".join(result.get("log", [])), "SKIPPED (already processed)", None
+        
+        log_lines = result.get("log", [])
+        scripts = result.get("scripts", [])
+        total = result.get("total_chapters", 0)
+        done = result.get("completed", 0)
+        
+        preview = json.dumps({
+            "total_chapters": total,
+            "completed": done,
+            "skipped": result.get("skipped", 0),
+            "failed": result.get("failed", 0),
+            "sample": scripts[0] if scripts else None,
+        }, ensure_ascii=False, indent=2)
+        
+        return "\n".join(log_lines), f"DONE: {done}/{total} chapters", preview
+    except Exception as e:
+        import traceback
+        return str(e), f"Error: {e}", None
+
 def view_output_files():
     files = []
     for d in [SCRIPTS_DIR, AUDIO_DIR]:
@@ -178,6 +240,23 @@ with gr.Blocks(title="GBT AI短剧工厂") as demo:
                 with gr.Column(scale=1):
                     ta = gr.Audio(label="试听", type="filepath")
             tb.click(fn=generate_tts_ui, inputs=[tt, tv, ts], outputs=[tl, ta])
+        
+        with gr.TabItem("📚 玄幻小说→短剧"):
+            gr.Markdown("### 玄幻排行榜 → 整本小说逐章→每章2集短剧→完结才换书")
+            with gr.Row():
+                with gr.Column(scale=1):
+                    nsource = gr.Dropdown(choices=["biquge","69shu","biqukan"], value="biquge", label="小说源")
+                    fetch_btn = gr.Button("📊 获取排行榜", variant="primary")
+                    ntable = gr.Markdown("点击获取玄幻小说排行榜")
+                    nrank = gr.Dropdown(choices=[], label="选择小说", interactive=True)
+                    naudio = gr.Checkbox(label="生成配音", value=True)
+                    ndrama_btn = gr.Button("🎬 整本→短剧(逐章2集)", variant="primary", size="lg")
+                with gr.Column(scale=2):
+                    nlog = gr.Textbox(label="流程日志", lines=12, elem_classes="log-box")
+                    ntitle = gr.Textbox(label="结果", visible=False)
+                    nscript = gr.Code(label="两集剧本 (Episode 1 + 2)", language="json", lines=16)
+            fetch_btn.click(fn=fetch_ranking_ui, inputs=[nsource], outputs=[ntable, nrank])
+            ndrama_btn.click(fn=novel_to_drama_ui, inputs=[nsource, nrank, naudio], outputs=[nlog, ntitle, nscript])
         
         with gr.TabItem("⚙️ 设置"):
             status = gr.Textbox(label="系统状态", value=f"""
