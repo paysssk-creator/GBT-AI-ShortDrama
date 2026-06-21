@@ -27,7 +27,7 @@ for d in [OUTPUT_DIR, SCRIPTS_DIR, VIDEOS_DIR, AUDIO_DIR, FINAL_DIR, SUBTITLES_D
 
 # === LLM 配置 ===
 LLM_PROVIDER = os.getenv("GBT_DRAMA_LLM", "auto")  # auto/zhipu/openai/deepseek/ollama
-LLM_MODEL = os.getenv("GBT_DRAMA_MODEL", None)  # None = default
+LLM_MODEL = os.getenv("GBT_DRAMA_MODEL", "qwen2.5-coder:7b")  # 默认用7B模型, 0.5B不够
 
 # === 视频生成配置 ===
 VIDEO_ENGINE = os.getenv("GBT_VIDEO_ENGINE", "diffusers")  # diffusers/skyreels/comfyui
