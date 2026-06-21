@@ -177,11 +177,12 @@ class ScriptGenerator:
                 self.llm=OpenAI(api_key=k); self.model="gpt-4o-mini"
                 self._openai=True; print("[OK] LLM: OpenAI"); return
             except: pass
-        # 5. Ollama
+        # 5. Ollama - 强制用7B模型
         try:
             from gbt.llm import GBTLLM
-            self.llm=GBTLLM(provider="ollama"); self.model=self.llm.model
-            print(f"[OK] LLM: Ollama/{self.model}"); return
+            self.llm=GBTLLM(provider="ollama", model="qwen2.5-coder:7b")
+            self.model="qwen2.5-coder:7b"
+            print(f"[OK] LLM: Ollama/qwen2.5-coder:7b"); return
         except: pass
         raise RuntimeError("No LLM")
 
