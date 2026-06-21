@@ -9,6 +9,11 @@ __pycache__/
 dist/
 build/
 
+# Output
+output/
+*.mp3
+*.mp4
+
 # Environment
 .env
 .venv/
