@@ -95,7 +95,7 @@ class ScriptGenerator:
         user_prompt += f"\n请生成{MAX_SCENES}个场景以内的短剧剧本。"
 
         messages = [
-            {"role": "system", "content": self.System_PROMPT},
+            {"role": "system", "content": self.SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
         ]
 
